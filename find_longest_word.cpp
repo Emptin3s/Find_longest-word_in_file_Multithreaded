@@ -4,7 +4,9 @@
 #include <vector>
 #include <thread>
 #include <mutex>
+#include <unordered_map>
 #include <algorithm>
+#include <chrono>
 
 // Мьютекс для синхронизации потоков при доступе к общим ресурсам
 std::mutex mtx;
@@ -15,10 +17,11 @@ std::string longestWordGlobal;
 // Глобальная переменная для общего количества слов во всём файле
 unsigned long long totalWordCount = 0;
 
-// Функция для нахождения самого длинного слова и подсчета количества слов в буфере данных
-// buffer - строка, содержащая фрагмент данных из файла
-// localWordCount - локальный счётчик слов для данного потока
-void findLongestWordInBuffer(const std::string& buffer, unsigned long long& localWordCount) {
+// Глобальная хеш-таблица для хранения частоты слов
+std::unordered_map<std::string, unsigned long long> wordFrequencyGlobal;
+
+// Функция для нахождения самого длинного слова и подсчета частоты слов в буфере данных
+void findLongestWordAndCountFrequency(const std::string& buffer, unsigned long long& localWordCount, std::unordered_map<std::string, unsigned long long>& localWordFrequency) {
     std::string currentWord;  // Переменная для хранения текущего слова
     std::string longestWordLocal;  // Переменная для самого длинного слова в данном потоке
 
@@ -32,6 +35,10 @@ void findLongestWordInBuffer(const std::string& buffer, unsigned long long& loca
                 if (currentWord.length() > longestWordLocal.length()) {
                     longestWordLocal = currentWord;
                 }
+
+                // Увеличиваем частоту появления этого слова в локальной хеш-таблице
+                ++localWordFrequency[currentWord];
+
                 currentWord.clear();  // Очищаем текущее слово для начала нового
                 ++localWordCount;  // Увеличиваем локальный счётчик слов
             }
@@ -47,20 +54,26 @@ void findLongestWordInBuffer(const std::string& buffer, unsigned long long& loca
         if (currentWord.length() > longestWordLocal.length()) {
             longestWordLocal = currentWord;
         }
+
+        // Увеличиваем частоту последнего слова
+        ++localWordFrequency[currentWord];
+
         ++localWordCount;  // Учитываем последнее слово
     }
 
-    // Обновляем глобальную переменную с самым длинным словом, используя мьютекс
+    // Обновляем глобальные переменные с использованием мьютекса
     std::lock_guard<std::mutex> guard(mtx);
     if (longestWordLocal.length() > longestWordGlobal.length()) {
         longestWordGlobal = longestWordLocal;
     }
+
+    // Обновляем глобальную хеш-таблицу частот
+    for (const auto& pair : localWordFrequency) {
+        wordFrequencyGlobal[pair.first] += pair.second;
+    }
 }
 
 // Функция для чтения фрагмента файла и передачи его на обработку
-// fileName - имя файла
-// start - начало фрагмента в файле
-// end - конец фрагмента в файле
 void processFileChunk(const std::string& fileName, std::streampos start, std::streampos end) {
     std::ifstream file(fileName, std::ios::binary);  // Открываем файл в бинарном режиме
     if (!file) {
@@ -83,8 +96,11 @@ void processFileChunk(const std::string& fileName, std::streampos start, std::st
     // Локальный счётчик слов для данного потока
     unsigned long long localWordCount = 0;
 
+    // Локальная хеш-таблица частот для данного потока
+    std::unordered_map<std::string, unsigned long long> localWordFrequency;
+
     // Ищем самое длинное слово и считаем количество слов в данном фрагменте
-    findLongestWordInBuffer(chunk, localWordCount);
+    findLongestWordAndCountFrequency(chunk, localWordCount, localWordFrequency);
 
     // Обновляем глобальный счётчик слов с использованием мьютекса
     std::lock_guard<std::mutex> guard(mtx);
@@ -92,8 +108,6 @@ void processFileChunk(const std::string& fileName, std::streampos start, std::st
 }
 
 // Функция для разделения файла на части и создания потоков
-// fileName - имя файла
-// numThreads - количество потоков для обработки
 void processFileInChunks(const std::string& fileName, int numThreads) {
     // Открываем файл в бинарном режиме и перемещаем указатель в конец файла
     std::ifstream file(fileName, std::ios::binary | std::ios::ate);
@@ -123,20 +137,36 @@ void processFileInChunks(const std::string& fileName, int numThreads) {
     // Ожидаем завершения всех потоков
     for (auto& th : threads) {
         th.join();
+    }    
+    // Вывод частоты слов
+    std::cout << "\nЧастота слов в файле:" << std::endl;
+    for (const auto& pair : wordFrequencyGlobal) {
+        std::cout << pair.first << ": " << pair.second << std::endl;
     }
-
     // Выводим результаты: самое длинное слово и общее количество слов
     std::cout << "Самое длинное слово в файле: " << longestWordGlobal << std::endl;
     std::cout << "Общее количество слов в файле: " << totalWordCount << std::endl;
 }
 
 int main() {
-    setlocale(LC_ALL, "RUS");
+    setlocale(LC_ALL, "rus");
     std::string fileName = "warandpeace.txt";  // Укажите имя вашего файла
     int numThreads = 8;  // Количество потоков для многопоточной обработки
 
+    // Замеряем время начала выполнения программы
+    auto startTime = std::chrono::high_resolution_clock::now();
+
     // Запуск обработки файла с заданным количеством потоков
     processFileInChunks(fileName, numThreads);
+
+    // Замеряем время окончания выполнения программы
+    auto endTime = std::chrono::high_resolution_clock::now();
+
+    // Вычисляем продолжительность работы программы
+    std::chrono::duration<double> duration = endTime - startTime;
+
+    // Выводим продолжительность работы программы
+    std::cout << "Время работы программы: " << duration.count() << " секунд" << std::endl;
 
     return 0;
 }
