@@ -1,4 +1,5 @@
-﻿#include <iostream>
+﻿# Ладо Алексей 21ПМ https ://github.com/Emptin3s/Find_longest-word_in_file_Multithreaded
+#include <iostream>
 #include <fstream>
 #include <string>
 #include <vector>
