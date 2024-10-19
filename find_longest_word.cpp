@@ -107,6 +107,7 @@ void processFileInChunks(const std::string& fileName, int numThreads) {
 }
 
 int main() {
+    setlocale(LC_ALL, "RUS");
     std::string fileName = "warandpeace.txt";  // Укажите имя вашего файла
     int numThreads = 8;  // Количество потоков
 
