@@ -6,11 +6,12 @@
 #include <mutex>
 #include <algorithm>
 
-std::mutex mtx;  // Мьютекс для защиты глобального ресурса
+std::mutex mtx;  // Мьютекс для защиты глобальных ресурсов
 std::string longestWordGlobal;  // Глобальная переменная для самого длинного слова
+unsigned long long totalWordCount = 0;  // Глобальная переменная для общего количества слов
 
-// Функция для нахождения самого длинного слова в буфере данных
-void findLongestWordInBuffer(const std::string& buffer) {
+// Функция для нахождения самого длинного слова и подсчета количества слов в буфере данных
+void findLongestWordInBuffer(const std::string& buffer, unsigned long long& localWordCount) {
     std::string currentWord;
     std::string longestWordLocal;
 
@@ -22,6 +23,7 @@ void findLongestWordInBuffer(const std::string& buffer) {
                     longestWordLocal = currentWord;
                 }
                 currentWord.clear();
+                ++localWordCount;  // Увеличиваем локальный счётчик слов
             }
         }
         else {
@@ -30,8 +32,11 @@ void findLongestWordInBuffer(const std::string& buffer) {
     }
 
     // Проверяем последнее слово в буфере
-    if (!currentWord.empty() && currentWord.length() > longestWordLocal.length()) {
-        longestWordLocal = currentWord;
+    if (!currentWord.empty()) {
+        if (currentWord.length() > longestWordLocal.length()) {
+            longestWordLocal = currentWord;
+        }
+        ++localWordCount;  // Учитываем последнее слово
     }
 
     // Защита глобальной переменной через мьютекс
@@ -61,7 +66,13 @@ void processFileChunk(const std::string& fileName, std::streampos start, std::st
     // Преобразуем в строку для обработки
     std::string chunk(buffer.begin(), buffer.end());
 
-    findLongestWordInBuffer(chunk);
+    // Локальный счётчик слов для данного потока
+    unsigned long long localWordCount = 0;
+    findLongestWordInBuffer(chunk, localWordCount);
+
+    // Обновляем глобальный счётчик слов с использованием мьютекса
+    std::lock_guard<std::mutex> guard(mtx);
+    totalWordCount += localWordCount;
 }
 
 // Функция для разделения файла на части и создания потоков
@@ -92,10 +103,11 @@ void processFileInChunks(const std::string& fileName, int numThreads) {
     }
 
     std::cout << "Самое длинное слово в файле: " << longestWordGlobal << std::endl;
+    std::cout << "Общее количество слов в файле: " << totalWordCount << std::endl;
 }
 
 int main() {
-    std::string fileName = "file.txt";  // Укажите имя вашего файла
+    std::string fileName = "warandpeace.txt";  // Укажите имя вашего файла
     int numThreads = 8;  // Количество потоков
 
     processFileInChunks(fileName, numThreads);
