@@ -4,59 +4,79 @@
 #include <vector>
 #include <thread>
 #include <mutex>
+#include <sstream>
+#include <algorithm>
 
-std::mutex mtx;  // Mutex to protect shared resources (e.g., longest word)
-std::string longestWordGlobal;  // Store the longest word globally
+std::mutex mtx;  // Мьютекс для защиты глобального ресурса
+std::string longestWordGlobal;  // Глобальная переменная для самого длинного слова
 
-// Function to find the longest word in a file chunk
+// Функция для нахождения самого длинного слова в части файла
 void findLongestWordInChunk(std::ifstream& file, std::streampos start, std::streampos end) {
     file.seekg(start);
-    std::string word, longestWordLocal;
+    std::string line, longestWordLocal;
+    char ch;
 
-    while (file.tellg() < end && file >> word) {
-        if (word.length() > longestWordLocal.length()) {
-            longestWordLocal = word;
+    // Буфер для хранения текущего слова
+    std::string currentWord;
+
+    while (file.tellg() < end && file.get(ch)) {
+        // Если нашли запятую или пробел — проверяем текущее слово
+        if (ch == ',' || ch == ' ' || ch == '\n') {
+            if (!currentWord.empty()) {
+                if (currentWord.length() > longestWordLocal.length()) {
+                    longestWordLocal = currentWord;
+                }
+                currentWord.clear();  // Очищаем для нового слова
+            }
+        }
+        else {
+            currentWord += ch;  // Добавляем символ к слову
         }
     }
 
-    // Protect the global longest word with a mutex
+    // Проверяем последнее слово после завершения цикла
+    if (currentWord.length() > longestWordLocal.length()) {
+        longestWordLocal = currentWord;
+    }
+
+    // Защита глобальной переменной через мьютекс
     std::lock_guard<std::mutex> guard(mtx);
     if (longestWordLocal.length() > longestWordGlobal.length()) {
         longestWordGlobal = longestWordLocal;
     }
 }
 
-// Function to split the file into chunks and create threads
+// Функция для разделения файла на части и создания потоков
 void processFileInChunks(const std::string& fileName, int numThreads) {
-    std::ifstream file(fileName, std::ios::binary | std::ios::ate);  // Open file at the end
+    std::ifstream file(fileName, std::ios::binary | std::ios::ate);  // Открытие файла в бинарном режиме
     if (!file) {
-        std::cerr << "Failed to open file: " << fileName << std::endl;
+        std::cerr << "Не удалось открыть файл: " << fileName << std::endl;
         return;
     }
 
-    std::streampos fileSize = file.tellg();  // Get file size
-    std::streampos chunkSize = fileSize / numThreads;
+    std::streampos fileSize = file.tellg();  // Получаем размер файла
+    std::streampos chunkSize = fileSize / numThreads;  // Размер каждой части
 
     std::vector<std::thread> threads;
 
-    // Create threads to process each chunk
+    // Создаем потоки для обработки каждого куска
     for (int i = 0; i < numThreads; ++i) {
         std::streampos start = i * chunkSize;
         std::streampos end = (i == numThreads - 1) ? fileSize : start + chunkSize;
         threads.push_back(std::thread(findLongestWordInChunk, std::ref(file), start, end));
     }
 
-    // Wait for all threads to finish
+    // Ожидаем завершения всех потоков
     for (auto& th : threads) {
         th.join();
     }
 
-    std::cout << "The longest word in the file is: " << longestWordGlobal << std::endl;
+    std::cout << "Самое длинное слово в файле: " << longestWordGlobal << std::endl;
 }
 
 int main() {
-    std::string fileName = "file.txt";  // Replace with your file name
-    int numThreads = 8;  // Number of threads
+    std::string fileName = "file.txt";  // Укажите имя вашего файла
+    int numThreads = 8;  // Количество потоков
 
     processFileInChunks(fileName, numThreads);
 
